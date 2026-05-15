@@ -6,11 +6,13 @@ Currently a minimal smoke test (`PairScanTest`) verifying that the `.metal` kern
 
 ## Status
 
-- ✅ `pair_scan` kernel runs from Swift, output matches CPU reference exactly (max abs err = 0).
-- 🚧 selective_scan_chunked port — TODO
-- 🚧 MambaBlock / MambaModel in Swift — TODO
-- 🚧 HF safetensors loader — TODO
-- 🚧 iOS app integration — TODO
+- ✅ `pair_scan` kernel — runs on Mac GPU and **iPhone GPU** (max abs err < 1e-6)
+- ✅ `selective_scan_chunked` kernel — full Mamba selective scan (D / softplus / z / state output flags), Mac + **iPhone** (max abs err ≈ 3e-7)
+- ✅ `MambaMetal` library — importable from any Swift / SwiftUI iOS app
+- ✅ iOS demo app: [createcentury/mamba-metal-demo](https://github.com/createcentury/mamba-metal-demo) — both kernels verified end-to-end on iPhone Air
+- 🚧 MambaBlock / MambaModel layer (nn.Linear / Conv1d / RMSNorm) — TODO
+- 🚧 HF safetensors loader + GPT-NeoX tokenizer — TODO
+- 🚧 Full Mamba inference on iPhone — TODO
 
 ## Build
 
