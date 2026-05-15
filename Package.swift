@@ -47,6 +47,15 @@ let package = Package(
                 .product(name: "MLXRandom", package: "mlx-swift"),
             ],
             path: "Sources/MambaBlockTest"
+        ),
+        .executableTarget(
+            name: "LoadHFTest",
+            dependencies: [
+                .target(name: "MambaMetal"),
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ],
+            path: "Sources/LoadHFTest"
         )
     ]
 )
