@@ -4,3 +4,6 @@ DerivedData/
 *.xcuserstate
 .DS_Store
 Package.resolved
+
+# Demo: xcodegen-generated project (regenerate via `xcodegen generate`)
+Demo/MambaMetalDemo.xcodeproj/
