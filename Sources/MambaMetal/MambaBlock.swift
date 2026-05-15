@@ -95,4 +95,92 @@ public class MambaBlock: Module {
         let y = yChan.transposed(0, 2, 1)             // (B, L, dInner)
         return outProj(y)
     }
+
+    /// Process a prompt and return per-state caches for incremental decode.
+    /// Returns (y, convState, ssmState).
+    public func prefill(_ x: MLXArray) -> (MLXArray, MLXArray, MLXArray) {
+        let B = x.shape[0]
+        let L = x.shape[1]
+
+        let xz = inProj(x)
+        let parts = xz.split(parts: 2, axis: -1)
+        let xPreConv = parts[0]
+        let z = parts[1]
+
+        // Conv state: last d_conv pre-conv values (left-padded with zeros).
+        let convState: MLXArray
+        if L >= dConv {
+            convState = xPreConv[0..., (L - dConv)..<L, 0...].transposed(0, 2, 1)
+        } else {
+            let pad = MLX.zeros([B, dConv - L, dInner], type: Float32.self)
+            convState = MLX.concatenated([pad, xPreConv], axis: 1).transposed(0, 2, 1)
+        }
+
+        var xMain = conv1d(xPreConv)[0..., 0..<L, 0...]
+        xMain = silu(xMain)
+
+        let xDbl = xProj(xMain)
+        let dt   = xDbl[0..., 0..., 0 ..< dtRank]
+        let bSsm = xDbl[0..., 0..., dtRank ..< (dtRank + dState)]
+        let cSsm = xDbl[0..., 0..., (dtRank + dState) ..< (dtRank + 2 * dState)]
+        let dtFull = dtProj(dt)
+        let A = -MLX.exp(ALog)
+
+        let (yChan, ssmState) = selectiveScan(
+            u: xMain.transposed(0, 2, 1),
+            delta: dtFull.transposed(0, 2, 1),
+            A: A,
+            B: bSsm.transposed(0, 2, 1),
+            C: cSsm.transposed(0, 2, 1),
+            D: D,
+            z: z.transposed(0, 2, 1),
+            deltaSoftplus: true
+        )
+        let y = outProj(yChan.transposed(0, 2, 1))
+        return (y, convState, ssmState)
+    }
+
+    /// O(1) single-token step. Returns (y, newConvState, newSSMState).
+    public func step(
+        _ xToken: MLXArray,         // (B, 1, dModel)
+        convState: MLXArray,        // (B, dInner, dConv)
+        ssmState: MLXArray          // (B, dInner, dState)
+    ) -> (MLXArray, MLXArray, MLXArray) {
+        let xz = inProj(xToken)
+        let parts = xz.split(parts: 2, axis: -1)
+        let xMain = parts[0][0..., 0, 0...]           // (B, dInner)
+        let z = parts[1][0..., 0, 0...]               // (B, dInner)
+
+        // Sliding-window conv update
+        let newConv = MLX.concatenated(
+            [convState[0..., 0..., 1..<dConv], xMain.expandedDimensions(axis: 2)],
+            axis: 2
+        )                                              // (B, dInner, dConv)
+        let w = conv1d.weight.squeezed(axis: -1)       // (dInner, dConv)
+        let convOut = (newConv * w.expandedDimensions(axis: 0)).sum(axis: -1)
+            + (conv1d.bias ?? MLX.zeros([dInner], type: Float32.self))
+        let xConv = silu(convOut)                     // (B, dInner)
+
+        let xDbl = xProj(xConv)
+        let dtPre = xDbl[0..., 0 ..< dtRank]
+        let bSsm  = xDbl[0..., dtRank ..< (dtRank + dState)]
+        let cSsm  = xDbl[0..., (dtRank + dState) ..< (dtRank + 2 * dState)]
+        var dt = dtProj(dtPre)                        // (B, dInner)
+        dt = softplus(dt)
+
+        let A = -MLX.exp(ALog)                        // (dInner, dState)
+        let a = MLX.exp(
+            dt.expandedDimensions(axis: 2) * A.expandedDimensions(axis: 0)
+        )                                              // (B, dInner, dState)
+        let b = (dt * xConv).expandedDimensions(axis: 2)
+            * bSsm.expandedDimensions(axis: 1)         // (B, dInner, dState)
+        let newSSM = a * ssmState + b                 // (B, dInner, dState)
+
+        var y = (newSSM * cSsm.expandedDimensions(axis: 1)).sum(axis: -1)  // (B, dInner)
+        y = y + D * xConv                              // D skip
+        y = y * silu(z)                                // z gate
+
+        y = outProj(y).expandedDimensions(axis: 1)    // (B, 1, dModel)
+        return (y, newConv, newSSM)
+    }
 }
