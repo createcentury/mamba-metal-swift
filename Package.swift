@@ -17,6 +17,16 @@ let package = Package(
                 .product(name: "MLXRandom", package: "mlx-swift"),
             ],
             path: "Sources/PairScanTest"
+        ),
+        .executableTarget(
+            name: "SelectiveScanTest",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXRandom", package: "mlx-swift"),
+            ],
+            path: "Sources/SelectiveScanTest"
         )
     ]
 )
